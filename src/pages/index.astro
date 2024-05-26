@@ -1,0 +1,87 @@
+---
+Astro.response.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+Astro.response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <title>HackBlitz</title>
+    <style>
+      div {
+        display: flex;
+        width: 100%;
+        height: 35rem;
+      }
+      iframe,
+      textarea {
+        width: 100%;
+      }
+    </style>
+    <script>
+      import { WebContainer } from "@webcontainer/api";
+      const WC = await WebContainer.boot();
+
+      const mount = async (WC: WebContainer) => {
+        const response = await fetch("/snapshot.bin");
+        const snapshotBuffer = await response.arrayBuffer();
+        await WC.mount(new Uint8Array(snapshotBuffer));
+      };
+      const install = async (WC: WebContainer) => {
+        const installProcess = await WC.spawn("npm", ["install"]);
+        return installProcess.exit;
+      };
+
+      const startDev = async (WC: WebContainer) => {
+        const iframeEl = document.querySelector("iframe") as HTMLIFrameElement;
+        const devProcess = await WC.spawn("npm", ["run", "dev"]);
+        devProcess.output.pipeTo(
+          new WritableStream({
+            write(data) {
+              console.log(data);
+            },
+          })
+        );
+        WC.on("server-ready", (_, url) => (iframeEl.src = url));
+      };
+
+      const writeToTempFile = async (content: string) => {
+        const iframeEl = document.querySelector("iframe") as HTMLIFrameElement;
+
+        await WC.fs.writeFile("/src/Temp.astro", content);
+        iframeEl.src = iframeEl.src;
+      };
+
+      const initEditor = async () => {
+        const textareaEl = document.querySelector(
+          "textarea"
+        ) as HTMLTextAreaElement;
+        const fileContents = await WC.fs.readFile("/src/Temp.astro");
+        textareaEl.value = new TextDecoder().decode(fileContents);
+
+        textareaEl.addEventListener("input", (e) => {
+          const target = e.currentTarget as HTMLTextAreaElement;
+          writeToTempFile(target.value);
+        });
+      };
+
+      await mount(WC);
+      const exitCode = await install(WC);
+      if (exitCode !== 0) {
+        throw new Error("Installation failed");
+      }
+      await startDev(WC);
+      await initEditor();
+      document.querySelector("h1")!.style.display = "none";
+    </script>
+  </head>
+  <body>
+    <h1>Loading...</h1>
+    <div>
+      <iframe></iframe>
+      <textarea></textarea>
+    </div>
+  </body>
+</html>
